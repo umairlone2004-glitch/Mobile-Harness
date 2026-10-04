@@ -1,0 +1,55 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with native submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        run: |
+          SDKMANAGER=$(command -v sdkmanager || echo "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager")
+          echo "Using: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Fetch runtime bundle
+        run: |
+          mkdir -p dist/runtime-bundles
+          curl -fL -o dist/runtime-bundles/pocketdev-agy-arm64-2026.09.1.tar.zst \
+            "https://github.com/techjarves/Mobile-Harness/releases/download/runtime-2026.09.4/pocketdev-agy-arm64-2026.09.1.tar.zst"
+          ls -la dist/runtime-bundles
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon assembleOnlineDebug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobileHarness-debug-apk
+          path: app/build/outputs/apk/**/*.apk
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Mobile Harness build ${{ github.run_number }}
+          files: app/build/outputs/apk/**/*.apk
